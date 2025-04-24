@@ -63,8 +63,22 @@ def main():
     
     st.title("Stock Market Prediction Dashboard")
     
-    # Initialize the predictor
-    predictor = StockPredictor()
+    # Initialize the predictor with a default ticker (AAPL)
+    try:
+        # Initialize with a default ticker, but catch errors if they occur
+        predictor = StockPredictor("AAPL")
+    except Exception as e:
+        st.error(f"Error initializing the stock predictor: {str(e)}")
+        st.info("You can still use the application, but you'll need to select a valid ticker.")
+        
+        # Create a placeholder predictor that will be properly initialized
+        # when the user selects a ticker in the display functions
+        class PlaceholderPredictor:
+            def set_ticker(self, ticker):
+                st.info(f"Initializing predictor with ticker: {ticker}")
+                # This will be handled by the display functions
+        
+        predictor = PlaceholderPredictor()
     
     # Create a navigation menu
     nav_options = ["Single Stock Prediction", "Stock Comparison", "About"]

@@ -308,9 +308,18 @@ def display_stock_prediction(predictor):
         else:
             try:
                 with st.spinner(f"Analyzing {ticker}..."):
-                    # Set the ticker and prediction type
-                    predictor.set_ticker(ticker)
-                    predictor.day_trading = day_trading
+                    # If we have a PlaceholderPredictor, create a real one
+                    if not hasattr(predictor, 'data') or not hasattr(predictor, 'predict_with_confidence'):
+                        try:
+                            predictor = StockPredictor(ticker, day_trading=day_trading)
+                        except Exception as e:
+                            st.error(f"Error initializing predictor: {str(e)}")
+                            st.info("Please try a different ticker symbol.")
+                            return
+                    else:
+                        # Set the ticker and prediction type on an existing predictor
+                        predictor.set_ticker(ticker)
+                        predictor.day_trading = day_trading
                     
                     # Make the prediction
                     prediction = predictor.predict_with_confidence(force_update=force_update)
@@ -479,15 +488,25 @@ def display_stock_comparison(predictor):
             progress_bar = st.progress(0)
             status_text = st.empty()
             
+            # If we have a placeholder predictor, create a real one with the first ticker
+            real_predictor = predictor
+            if not hasattr(predictor, 'data') or not hasattr(predictor, 'predict_with_confidence'):
+                try:
+                    real_predictor = StockPredictor(tickers[0], day_trading=day_trading)
+                except Exception as e:
+                    st.error(f"Error initializing predictor with {tickers[0]}: {str(e)}")
+                    st.info("Please try different ticker symbols.")
+                    return
+            
             for i, ticker in enumerate(tickers):
                 status_text.text(f"Analyzing {ticker}...")
                 try:
                     # Set the ticker and prediction type
-                    predictor.set_ticker(ticker)
-                    predictor.day_trading = day_trading
+                    real_predictor.set_ticker(ticker)
+                    real_predictor.day_trading = day_trading
                     
                     # Make the prediction
-                    prediction = predictor.predict_with_confidence(force_update=force_update)
+                    prediction = real_predictor.predict_with_confidence(force_update=force_update)
                     
                     # Process the prediction data
                     price_change = prediction['predicted_price'] - prediction['current_price']
