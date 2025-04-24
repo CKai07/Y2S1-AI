@@ -831,12 +831,51 @@ class StockPredictor:
             showlegend=True
         )
         
-        fig.show()
+        # Display the prediction summary first
+        print("\n=== Prediction Summary ===")
+        format_prediction(prediction)
+        
+        # Then display the chart
+        print("\nDisplaying chart...")
+        
+        # Use a separate thread to show the plot so it doesn't block the menu
+        import threading
+        
+        def show_plot():
+            try:
+                # Display the plot
+                fig.show()
+            except Exception as e:
+                print(f"Error displaying plot: {str(e)}")
+        
+        # Start the plot in a separate thread
+        plot_thread = threading.Thread(target=show_plot)
+        plot_thread.daemon = True  # Set as daemon so it doesn't prevent program exit
+        plot_thread.start()
+        
+        # Let the user know they can continue
+        print("\nPlot displayed in separate window.")
+        print("You can continue using the program while viewing the plot.")
+        print("When you're done viewing the plot, you can close it and return to this window.")
+        
+        return prediction
     
     def _plot_with_matplotlib(self):
         """Fallback plotting with matplotlib if plotly is not available"""
         prediction = self.predict_with_confidence(force_update=True)
         
+        # Display the prediction summary first
+        print("\n=== Prediction Summary ===")
+        format_prediction(prediction)
+        
+        # Use matplotlib in non-blocking mode
+        import matplotlib
+        # Use a non-blocking backend if possible
+        try:
+            matplotlib.use('TkAgg')  # Try to use TkAgg which is better for interactive plots
+        except Exception:
+            pass  # If it fails, use the default backend
+            
         plt.figure(figsize=(12, 8))
         
         # Plot historical prices
@@ -870,7 +909,123 @@ class StockPredictor:
         plt.xlabel('Date')
         
         plt.tight_layout()
-        plt.show()
+        
+        # Then display the chart in a non-blocking way
+        print("\nDisplaying chart...")
+        
+        # Use a separate thread to show the plot
+        import threading
+        
+        def show_plot():
+            try:
+                # Show the plot in non-blocking mode
+                plt.ion()  # Turn on interactive mode
+                plt.show()
+                
+                # Keep the plot window open without blocking the main thread
+                import time
+                start_time = time.time()
+                # Keep the plot alive for a few seconds to make sure it's displayed
+                while time.time() - start_time < 2 and plt.get_fignums():
+                    plt.pause(0.1)
+                    
+                # Note: The plot window will stay open until the user closes it
+            except Exception as e:
+                print(f"Error displaying plot: {str(e)}")
+        
+        # Start the plot in a separate thread
+        plot_thread = threading.Thread(target=show_plot)
+        plot_thread.daemon = True  # Set as daemon so it doesn't prevent program exit
+        plot_thread.start()
+        
+        # Let the user know they can continue
+        print("\nPlot displayed in separate window.")
+        print("You can continue using the program while viewing the plot.")
+        print("When you're done viewing the plot, you can close it and return to this window.")
+        
+        return prediction
+
+    def test_historical_accuracy(self, days=30):
+        """
+        Test the accuracy of the prediction system on historical data
+        
+        Args:
+            days (int): Number of days to test
+            
+        Returns:
+            dict: Dictionary with test results including RMSE, MAE, R² score,
+                  actual prices, predicted prices, dates, and errors
+        """
+        try:
+            # Load the most recent data
+            self.load_data(force_update=True)
+            
+            if len(self.data) < days + 60:
+                raise ValueError(f"Not enough historical data for {self.ticker}. Need at least {days + 60} days.")
+            
+            # Prepare results storage
+            actual_prices = []
+            predicted_prices = []
+            dates = []
+            errors = []
+            
+            # For each day in the test range
+            for i in range(days):
+                # Use data up to (today - days + i) to predict the price for (today - days + i + 1)
+                test_day_idx = len(self.data) - days + i
+                
+                # Create a copy of the data up to the test day
+                test_data = self.data.iloc[:test_day_idx].copy()
+                
+                # Store actual price for the next day
+                next_day = self.data.iloc[test_day_idx]
+                actual_price = next_day['Close']
+                actual_date = self.data.index[test_day_idx]
+                
+                # Use the data up to test_day to predict the next day
+                predictor_test = StockPredictor(self.ticker)
+                predictor_test.data = test_data
+                predictor_test.calculate_technical_indicators()
+                predictor_test.prepare_features()
+                predictor_test.build_and_train_models()
+                
+                # Get prediction
+                prediction = predictor_test.predict_with_confidence()
+                predicted_price = prediction["predicted_price"]
+                
+                # Calculate error
+                error = actual_price - predicted_price
+                
+                # Store results
+                actual_prices.append(actual_price)
+                predicted_prices.append(predicted_price)
+                dates.append(actual_date)
+                errors.append(error)
+            
+            # Calculate metrics
+            rmse = np.sqrt(np.mean(np.square(errors)))
+            mae = np.mean(np.abs(errors))
+            
+            # Calculate R² score if we have enough data points
+            if len(actual_prices) > 1:
+                r2 = 1 - (np.sum(np.square(errors)) / np.sum(np.square(actual_prices - np.mean(actual_prices))))
+            else:
+                r2 = 0
+            
+            # Return results
+            return {
+                'rmse': rmse,
+                'mae': mae,
+                'r2': r2,
+                'actual_prices': actual_prices,
+                'predicted_prices': predicted_prices,
+                'dates': dates,
+                'errors': errors
+            }
+            
+        except Exception as e:
+            print(f"Error in historical accuracy test: {str(e)}")
+            raise e
 
 def format_prediction(prediction):
     """Format the prediction results for display"""
@@ -1071,6 +1226,15 @@ def main():
     print("- Short-term (day trading) strategy")
     print("- Long-term (investment) strategy")
     
+    # Configure matplotlib for non-blocking interactive plots
+    import matplotlib
+    try:
+        matplotlib.use('TkAgg')  # Try to use TkAgg which is better for interactive plots
+        import matplotlib.pyplot as plt
+        plt.ion()  # Turn on interactive mode for matplotlib
+    except:
+        pass  # If it fails, use the default backend
+    
     # Store predictor instances for reuse
     predictors = {}
     
@@ -1088,8 +1252,8 @@ def main():
             if choice == '5':
                 print("Exiting. Thank you!")
                 break
-                
-            if choice in ['1', '2', '3']:
+            
+            if choice in ['1', '2']:
                 ticker = input("Enter stock ticker (e.g., AAPL, TSLA): ").strip().upper()
                 
                 try:
@@ -1125,44 +1289,257 @@ def main():
                         # Store for later refresh
                         predictors[(ticker, False)] = predictor
                     
-                    elif choice == '3':
-                        # Plot prediction
-                        print("\nChoose prediction type for visualization:")
-                        print("1. Day Trading (hourly data)")
-                        print("2. Long-term Investment (daily data)")
-                        viz_choice = input("\nEnter choice (1 or 2): ")
-                        
-                        try:
-                            if viz_choice == '1':
-                                predictor = StockPredictor(ticker, day_trading=True)
-                                # Store for later refresh
-                                predictors[(ticker, True)] = predictor
-                            else:
-                                predictor = StockPredictor(ticker, day_trading=False)
-                                # Store for later refresh
-                                predictors[(ticker, False)] = predictor
-                                
-                            predictor.plot_prediction()
-                        except ValueError as e:
-                            if "hourly data" in str(e) and viz_choice == '1':
-                                print(f"\nError: {str(e)}")
-                                print("\nWould you like to try plotting with long-term data instead?")
-                                try_long_term = input("(y/n): ").lower() == 'y'
-                                
-                                if try_long_term:
-                                    predictor = StockPredictor(ticker, day_trading=False)
-                                    # Store for later refresh
-                                    predictors[(ticker, False)] = predictor
-                                    predictor.plot_prediction()
-                            else:
-                                raise e
-                
                 except ValueError as e:
                     print(f"\nError: {str(e)}")
                     
                 except Exception as e:
                     print(f"\nUnexpected error: {str(e)}")
                     print("Please try another stock or option.")
+            
+            elif choice == '3':
+                # Plot prediction
+                ticker = input("Enter stock ticker (e.g., AAPL, TSLA): ").strip().upper()
+                print("\nChoose prediction type for visualization:")
+                print("1. Day Trading (hourly data)")
+                print("2. Long-term Investment (daily data)")
+                viz_choice = input("\nEnter choice (1 or 2): ")
+                
+                try:
+                    # Create a prediction and display summary before attempting to plot
+                    day_trading = viz_choice == '1'
+                    
+                    try:
+                        # Try to create the predictor
+                        predictor = StockPredictor(ticker, day_trading=day_trading)
+                        
+                        # Generate prediction and show summary
+                        prediction = predictor.predict_with_confidence(force_update=True)
+                        print("\n=== Prediction Summary ===")
+                        format_prediction(prediction)
+                        
+                        # Store for later refresh
+                        predictors[(ticker, day_trading)] = predictor
+                        
+                        # Prepare to display the graph
+                        print("\nPreparing graph...")
+                        
+                        import threading
+                        import time
+                        
+                        def show_plot():
+                            """Function to display plot in a separate thread"""
+                            try:
+                                if PLOTLY_AVAILABLE:
+                                    # Use Plotly for better interactive graphs
+                                    import plotly.graph_objects as go
+                                    from plotly.subplots import make_subplots
+                                    
+                                    # Create the plot figure
+                                    fig = make_subplots(rows=2, cols=1, 
+                                                       shared_xaxes=True, 
+                                                       vertical_spacing=0.1,
+                                                       subplot_titles=('Price', 'Volume'),
+                                                       row_heights=[0.7, 0.3])
+                                    
+                                    # Add price data
+                                    fig.add_trace(
+                                        go.Candlestick(
+                                            x=predictor.data.index,
+                                            open=predictor.data['Open'],
+                                            high=predictor.data['High'],
+                                            low=predictor.data['Low'],
+                                            close=predictor.data['Close'],
+                                            name='Price'
+                                        ),
+                                        row=1, col=1
+                                    )
+                                    
+                                    # Add volume data
+                                    fig.add_trace(
+                                        go.Bar(
+                                            x=predictor.data.index,
+                                            y=predictor.data['Volume'],
+                                            name='Volume'
+                                        ),
+                                        row=2, col=1
+                                    )
+                                    
+                                    # Add prediction points
+                                    current_price = prediction["current_price"]
+                                    last_date = predictor.data.index[-1]
+                                    next_date = last_date + timedelta(days=1 if day_trading else 30)
+                                    
+                                    # Add current price point
+                                    fig.add_trace(
+                                        go.Scatter(
+                                            x=[last_date],
+                                            y=[current_price],
+                                            mode='markers',
+                                            marker=dict(size=10, color='blue'),
+                                            name='Current Price'
+                                        ),
+                                        row=1, col=1
+                                    )
+                                    
+                                    # Add prediction with confidence levels
+                                    confidence_levels = prediction["confidence_levels"]
+                                    
+                                    fig.add_trace(
+                                        go.Scatter(
+                                            x=[next_date],
+                                            y=[confidence_levels["80%"]],
+                                            mode='markers',
+                                            marker=dict(size=10, color='green'),
+                                            name='80% Confidence'
+                                        ),
+                                        row=1, col=1
+                                    )
+                                    
+                                    fig.add_trace(
+                                        go.Scatter(
+                                            x=[next_date],
+                                            y=[confidence_levels["70%"]],
+                                            mode='markers',
+                                            marker=dict(size=10, color='orange'),
+                                            name='70% Confidence'
+                                        ),
+                                        row=1, col=1
+                                    )
+                                    
+                                    fig.add_trace(
+                                        go.Scatter(
+                                            x=[next_date],
+                                            y=[confidence_levels["65%"]],
+                                            mode='markers',
+                                            marker=dict(size=10, color='red'),
+                                            name='65% Confidence'
+                                        ),
+                                        row=1, col=1
+                                    )
+                                    
+                                    # Add raw prediction point
+                                    fig.add_trace(
+                                        go.Scatter(
+                                            x=[next_date],
+                                            y=[prediction["predicted_price"]],
+                                            mode='markers',
+                                            marker=dict(size=10, color='purple', symbol='star'),
+                                            name='Raw Prediction'
+                                        ),
+                                        row=1, col=1
+                                    )
+                                    
+                                    # Update layout
+                                    title_text = f"{ticker} - {prediction['prediction_type']} Prediction"
+                                    if prediction["market_status"] == "Closed":
+                                        title_text += " (Market Closed)"
+                                        
+                                    fig.update_layout(
+                                        title=title_text,
+                                        xaxis_title="Date",
+                                        yaxis_title="Price ($)",
+                                        height=800,
+                                        width=1200,
+                                        showlegend=True
+                                    )
+                                    
+                                    # Show the plot directly without saving
+                                    fig.show()
+                                    
+                                else:
+                                    # Use Matplotlib as fallback
+                                    import matplotlib.pyplot as plt
+                                    
+                                    # Turn on interactive mode
+                                    plt.ion()
+                                    
+                                    plt.figure(figsize=(12, 8))
+                                    
+                                    # Plot historical prices
+                                    plt.subplot(2, 1, 1)
+                                    plt.plot(predictor.data.index, predictor.data['Close'], label='Close Price')
+                                    
+                                    # Add prediction points
+                                    current_price = prediction["current_price"]
+                                    last_date = predictor.data.index[-1]
+                                    next_date = last_date + timedelta(days=1 if day_trading else 30)
+                                    
+                                    confidence_levels = prediction["confidence_levels"]
+                                    
+                                    plt.scatter([last_date], [current_price], color='blue', s=100, label='Current Price')
+                                    plt.scatter([next_date], [confidence_levels["80%"]], color='green', s=100, label='80% Confidence')
+                                    plt.scatter([next_date], [confidence_levels["70%"]], color='orange', s=100, label='70% Confidence')
+                                    plt.scatter([next_date], [confidence_levels["65%"]], color='red', s=100, label='65% Confidence')
+                                    plt.scatter([next_date], [prediction["predicted_price"]], color='purple', s=150, marker='*', label='Raw Prediction')
+                                    
+                                    title_text = f"{ticker} - {prediction['prediction_type']} Prediction"
+                                    if prediction["market_status"] == "Closed":
+                                        title_text += " (Market Closed)"
+                                    plt.title(title_text)
+                                    plt.ylabel('Price ($)')
+                                    plt.legend()
+                                    
+                                    # Plot volume
+                                    plt.subplot(2, 1, 2)
+                                    plt.bar(predictor.data.index, predictor.data['Volume'], color='gray', alpha=0.5)
+                                    plt.ylabel('Volume')
+                                    plt.xlabel('Date')
+                                    
+                                    plt.tight_layout()
+                                    plt.show()
+                                    
+                                    # Keep the plot window open without blocking
+                                    plt.draw()
+                                    plt.pause(0.001)  # Small pause to update the UI
+                            
+                            except Exception as e:
+                                print(f"Error displaying plot: {str(e)}")
+                        
+                        # Start the plot in a separate thread
+                        plot_thread = threading.Thread(target=show_plot)
+                        plot_thread.daemon = True  # Set as daemon so it doesn't prevent program exit
+                        plot_thread.start()
+                        
+                        # Let the user know they can continue
+                        print("\nDisplaying graph in a separate window...")
+                        print("You can continue using the program while viewing the graph.")
+                        print("The graph window will stay open even as you continue using the menu.")
+                        
+                        # Give the plotting thread a moment to start
+                        time.sleep(1)
+                    
+                    except ValueError as e:
+                        if "hourly data" in str(e) and day_trading:
+                            print(f"\nError: {str(e)}")
+                            print("\nNote: Day trading prediction requires sufficient hourly data.")
+                            print("This is often limited for some stocks.")
+                            print("\nWould you like to try plotting with long-term data instead?")
+                            try_long_term = input("(y/n): ").lower() == 'y'
+                            
+                            if try_long_term:
+                                # Try again with long-term prediction
+                                try:
+                                    predictor = StockPredictor(ticker, day_trading=False)
+                                    prediction = predictor.predict_with_confidence(force_update=True)
+                                    
+                                    # Display prediction summary
+                                    print("\n=== Long-term Prediction Summary ===")
+                                    format_prediction(prediction)
+                                    
+                                    # Store for later refresh
+                                    predictors[(ticker, False)] = predictor
+                                    
+                                    # Continue to the next menu iteration
+                                    # The user can select option 3 again to plot if desired
+                                    print("\nPrediction generated successfully. You can now plot it if desired.")
+                                    
+                                except Exception as e:
+                                    print(f"Error generating long-term prediction: {str(e)}")
+                        else:
+                            raise e
+                    
+                except Exception as e:
+                    print(f"\nError: {str(e)}")
             
             elif choice == '4':
                 # Test historical prediction accuracy
