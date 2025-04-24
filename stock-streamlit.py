@@ -8,6 +8,34 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Add custom CSS
+st.markdown("""
+<style>
+    .main-header {
+        font-size: 2.5rem;
+        color: #1E88E5;
+    }
+    .sub-header {
+        font-size: 1.5rem;
+        color: #0D47A1;
+    }
+    .info-text {
+        font-size: 1rem;
+    }
+    .highlight {
+        background-color: #f0f2f6;
+        padding: 10px;
+        border-radius: 5px;
+    }
+    .metric-card {
+        background-color: #f0f2f6;
+        border-radius: 5px;
+        padding: 15px;
+        margin: 5px;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 # Only import other modules after setting page config
 import pandas as pd
 import numpy as np
@@ -25,8 +53,8 @@ except ImportError:
     st.error("Could not import stock_market_prediction_system. Make sure the file is in the same directory.")
     st.stop()
 
-# Import the rest of the functions from streamlit_app.py
-from streamlit_app import display_stock_prediction, display_stock_comparison, display_prediction_results
+# Import the functions from our new functions file
+from streamlit_app_functions import display_stock_prediction, display_stock_comparison, display_prediction_results
 
 # Define our own main function without the page_config call
 def main():
